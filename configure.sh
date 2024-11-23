@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Farben für schönen Output
+# Farben für schöneren Output
 GREEN="\033[1;32m"
 BLUE="\033[1;34m"
 RED="\033[1;31m"
@@ -16,27 +16,27 @@ if [ "$(id -u)" -ne 0 ]; then
     error_msg "Bitte führe das Skript als root aus."
 fi
 
-# Auswahl einer Option aus einer Liste
+# Auswahl einer Option aus einer Liste (direkt anzeigen)
 select_option() {
     local prompt="$1"
     shift
     local options=("$@")
-    local default_index=0
+    local choice
 
     echo -e "\n$prompt"
     for i in "${!options[@]}"; do
         echo "$((i + 1)). ${options[i]}"
     done
 
-    read -rp "Wähle eine Option (Standard: ${options[default_index]}): " choice
-    choice=${choice:-$((default_index + 1))}
-
-    if [[ $choice -ge 1 && $choice -le ${#options[@]} ]]; then
-        echo "${options[choice-1]}"
-    else
-        error_msg "Ungültige Auswahl. Bitte erneut versuchen."
-        select_option "$prompt" "${options[@]}"
-    fi
+    while :; do
+        read -rp "Wähle eine Option [1-${#options[@]}]: " choice
+        if [[ $choice -ge 1 && $choice -le ${#options[@]} ]]; then
+            echo "${options[choice-1]}"
+            return
+        else
+            echo -e "${RED}Ungültige Auswahl. Bitte wähle eine gültige Option.${RESET}"
+        fi
+    done
 }
 
 # Zeitzonenauswahl
@@ -75,15 +75,8 @@ select_wlan() {
         return 1
     fi
 
-    echo -e "\nVerfügbare SSIDs:"
-    echo "$AVAILABLE_SSIDS" | nl -w2 -s'. '
-
-    read -rp "Wähle die SSID (Nummer) aus: " SSID_INDEX
-    SSID=$(echo "$AVAILABLE_SSIDS" | sed -n "${SSID_INDEX}p")
-    if [ -z "$SSID" ]; then
-        error_msg "Ungültige Auswahl."
-        return 1
-    fi
+    local ssids=($(echo "$AVAILABLE_SSIDS"))
+    SSID=$(select_option "Wähle ein WLAN-Netzwerk aus:" "${ssids[@]}")
 
     read -sp "Passwort für $SSID eingeben: " WLAN_PASSWORD
     echo
