@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Farben für besseren Output
+# Farben für schönen Output
 GREEN="\033[1;32m"
 BLUE="\033[1;34m"
 RED="\033[1;31m"
@@ -11,20 +11,45 @@ success_msg() { echo -e "${GREEN}✔ $1${RESET}"; }
 error_msg() { echo -e "${RED}✖ $1${RESET}"; }
 prompt_msg() { echo -e "${BLUE}$1${RESET}"; }
 
-# Konfigurationsdatei erstellen
-CONFIG_FILE="config.conf"
+# Verfügbare Laufwerke anzeigen und auswählen lassen
+select_disk() {
+    prompt_msg "Verfügbare Laufwerke:"
+    lsblk -d -o NAME,SIZE,TYPE | grep "disk"
 
+    local disk_options=($(lsblk -d -o NAME | grep -v "NAME"))
+    local default_disk=${disk_options[0]}
+
+    echo -e "\nWähle ein Laufwerk aus der obigen Liste (Standard: $default_disk):"
+    read -rp "Eingabe (z. B. $default_disk): " DISK
+    DISK=${DISK:-$default_disk}
+
+    if [[ ! " ${disk_options[@]} " =~ " ${DISK} " ]]; then
+        error_msg "Ungültige Auswahl. Bitte erneut ausführen."
+        exit 1
+    fi
+    success_msg "Ausgewähltes Laufwerk: $DISK"
+}
+
+# Konfigurationsdatei erstellen
 create_config() {
     prompt_msg "Willkommen! Wir erstellen jetzt deine Konfigurationsdatei für die automatisierte Arch Linux Installation."
-    echo -e "\nBitte gib die folgenden Informationen ein:\n"
+    echo -e "\nBitte gib die folgenden Informationen ein (Drücke Enter, um den Standardwert zu akzeptieren):\n"
 
     # Allgemeine Einstellungen
-    read -rp "Hostname (z.B. archlinux): " HOSTNAME
-    read -rp "Benutzername: " USERNAME
-    read -rp "Passwort für Benutzer und root: " PASSWORD
-    read -rp "Zeitzone (z.B. Europe/Berlin): " TIMEZONE
-    read -rp "Locale (z.B. en_US.UTF-8): " LOCALE
-    read -rp "Ziel-Festplatte (z.B. /dev/sda, /dev/nvme0n1): " DISK
+    read -rp "Hostname (Standard: archlinux): " HOSTNAME
+    HOSTNAME=${HOSTNAME:-archlinux}
+
+    read -rp "Benutzername (Standard: user): " USERNAME
+    USERNAME=${USERNAME:-user}
+
+    read -rp "Zeitzone (Standard: Europe/Berlin): " TIMEZONE
+    TIMEZONE=${TIMEZONE:-Europe/Berlin}
+
+    read -rp "Locale (Standard: en_US.UTF-8): " LOCALE
+    LOCALE=${LOCALE:-en_US.UTF-8}
+
+    # Festplattenauswahl
+    select_disk
 
     # Dateisystem
     echo -e "\nWähle das Dateisystem für die Installation:"
@@ -81,7 +106,8 @@ create_config() {
 
     # Repository-URL
     echo -e "\nGib die URL deines privaten GitHub-Repositories ein:"
-    read -rp "(z.B. git@github.com:<DEIN_USERNAME>/arch-install-scripts.git): " GITHUB_REPO_URL
+    read -rp "(Standard: https://github.com/<DEIN_USERNAME>/arch-install-scripts.git): " GITHUB_REPO_URL
+    GITHUB_REPO_URL=${GITHUB_REPO_URL:-https://github.com/<DEIN_USERNAME>/arch-install-scripts.git}
 
     # Konfigurationsdatei schreiben
     cat <<EOF > $CONFIG_FILE
@@ -90,10 +116,9 @@ create_config() {
 # Allgemeine Einstellungen
 HOSTNAME="$HOSTNAME"
 USERNAME="$USERNAME"
-PASSWORD="$PASSWORD"
 TIMEZONE="$TIMEZONE"
 LOCALE="$LOCALE"
-DISK="$DISK"
+DISK="/dev/$DISK"
 FILESYSTEM="$FILESYSTEM"
 
 # Desktop-Einstellungen
