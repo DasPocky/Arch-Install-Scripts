@@ -47,7 +47,6 @@ partition_disk() {
     parted "$DISK" --script mkpart primary 512MiB 100% || error_exit "Fehler beim Erstellen der Root-Partition."
     success_msg "Partitionierung abgeschlossen."
 
-    # Partitionen für NVMe-Laufwerke korrekt erkennen
     if [[ "$DISK" == *nvme* ]]; then
         EFI_PART="${DISK}p1"
         ROOT_PART="${DISK}p2"
@@ -55,7 +54,6 @@ partition_disk() {
         EFI_PART="${DISK}1"
         ROOT_PART="${DISK}2"
     fi
-
 
     step_msg "Formatiere Partitionen..."
     mkfs.fat -F32 "$EFI_PART" || error_exit "Fehler beim Formatieren der EFI-Partition."
@@ -72,10 +70,7 @@ partition_disk() {
 setup_btrfs() {
     if [ "$FILESYSTEM" == "btrfs" ]; then
         step_msg "Erstelle Btrfs-Subvolumes..."
-        # Root-Partition mounten
         mount "$ROOT_PART" /mnt || error_exit "Fehler beim Mounten der Root-Partition."
-
-        # Subvolumes erstellen
         btrfs subvolume create /mnt/@ || error_exit "Fehler beim Erstellen des @-Subvolumes."
         btrfs subvolume create /mnt/@home || error_exit "Fehler beim Erstellen des @home-Subvolumes."
         btrfs subvolume create /mnt/@snapshots || error_exit "Fehler beim Erstellen des @snapshots-Subvolumes."
@@ -93,13 +88,21 @@ setup_btrfs() {
     fi
 }
 
-
 # Basissystem installieren
 install_base_system() {
     step_msg "Installiere Basissystem..."
     pacstrap /mnt base linux linux-firmware networkmanager btrfs-progs || error_exit "Fehler beim Installieren des Basissystems."
     genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Fehler beim Generieren der fstab."
     success_msg "Basissystem installiert."
+}
+
+# Bootloader installieren
+install_grub() {
+    step_msg "Installiere GRUB-Bootloader..."
+    arch-chroot /mnt pacman -S --noconfirm grub efibootmgr || error_exit "Fehler beim Installieren von GRUB."
+    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || error_exit "Fehler beim Installieren des GRUB-Bootloaders."
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || error_exit "Fehler beim Erstellen der GRUB-Konfigurationsdatei."
+    success_msg "GRUB-Bootloader erfolgreich installiert."
 }
 
 # Grundlegende Systemkonfiguration
@@ -120,36 +123,6 @@ EOF
     success_msg "Systemkonfiguration abgeschlossen."
 }
 
-# GitHub-Repository klonen (HTTPS)
-clone_repo() {
-    step_msg "Klonen des GitHub-Repositories über HTTPS..."
-    mkdir -p /mnt/root/arch-install-scripts
-    git clone "$GITHUB_REPO_URL" /mnt/root/arch-install-scripts || error_exit "Fehler beim Klonen des Repositories."
-    success_msg "Repository kopiert."
-}
-
-# Systemd-Service für Post-Install erstellen
-setup_post_install_service() {
-    step_msg "Erstelle Systemd-Service für automatisches Post-Installationsskript..."
-    cat <<EOF > /mnt/etc/systemd/system/post-install.service
-[Unit]
-Description=Post-Installationsskript
-After=multi-user.target
-ConditionPathExists=/root/arch-install-scripts/post_install.sh
-
-[Service]
-Type=simple
-ExecStart=/root/arch-install-scripts/post_install.sh
-StandardInput=tty
-TTYPath=/dev/tty1
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    arch-chroot /mnt systemctl enable post-install.service || error_exit "Fehler beim Aktivieren des Post-Installations-Services."
-    success_msg "Post-Installations-Service erstellt und aktiviert."
-}
-
 # Hauptfunktion
 main() {
     echo -e "${GREEN}Starte automatisierte Arch Linux Installation...${RESET}"
@@ -161,8 +134,7 @@ main() {
     fi
     install_base_system
     configure_system
-    clone_repo
-    setup_post_install_service
+    install_grub
     success_msg "Installation abgeschlossen. Starte das System neu, um das Post-Installationsskript auszuführen."
 }
 
