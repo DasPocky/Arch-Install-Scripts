@@ -90,16 +90,16 @@ setup_btrfs() {
 
 # Basissystem installieren
 install_base_system() {
-    step_msg "Installiere Basissystem..."
-    pacstrap /mnt base linux linux-firmware networkmanager btrfs-progs || error_exit "Fehler beim Installieren des Basissystems."
+    step_msg "Installiere Basissystem und grundlegende Pakete..."
+    pacstrap /mnt base linux linux-firmware networkmanager btrfs-progs sudo openssh vim base-devel git || error_exit "Fehler beim Installieren des Basissystems."
     genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Fehler beim Generieren der fstab."
-    success_msg "Basissystem installiert."
+    success_msg "Basissystem und grundlegende Pakete installiert."
 }
 
 # Bootloader installieren
 install_grub() {
     step_msg "Installiere GRUB-Bootloader..."
-    arch-chroot /mnt pacman -S --noconfirm grub efibootmgr || error_exit "Fehler beim Installieren von GRUB."
+    arch-chroot /mnt pacman -S --noconfirm grub efibootmgr intel-ucode amd-ucode || error_exit "Fehler beim Installieren von GRUB und Microcode."
     arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || error_exit "Fehler beim Installieren des GRUB-Bootloaders."
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || error_exit "Fehler beim Erstellen der GRUB-Konfigurationsdatei."
     success_msg "GRUB-Bootloader erfolgreich installiert."
@@ -119,6 +119,7 @@ configure_system() {
         echo "$USERNAME:$PASSWORD" | chpasswd
         echo "root:$PASSWORD" | chpasswd
         systemctl enable NetworkManager
+        systemctl enable sshd
 EOF
     success_msg "Systemkonfiguration abgeschlossen."
 }
