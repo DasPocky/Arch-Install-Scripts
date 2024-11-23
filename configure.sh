@@ -1,161 +1,142 @@
 #!/bin/bash
 
-# Farben für schöneren Output
-GREEN="\033[1;32m"
-BLUE="\033[1;34m"
-RED="\033[1;31m"
-RESET="\033[0m"
-
-# Hilfsfunktionen
-success_msg() { echo -e "${GREEN}✔ $1${RESET}"; }
-error_msg() { echo -e "${RED}✖ $1${RESET}"; exit 1; }
-prompt_msg() { echo -e "${BLUE}$1${RESET}"; }
-
 # Überprüfen, ob das Skript als root ausgeführt wird
 if [ "$(id -u)" -ne 0 ]; then
-    error_msg "Bitte führe das Skript als root aus."
+    echo "Das Skript benötigt root-Berechtigungen. Versuche es mit sudo neu zu starten..."
+    exec sudo "$0" "$@"
+    exit 0
 fi
 
-# Auswahl einer Option aus einer Liste (direkt anzeigen)
-select_option() {
-    local prompt="$1"
+# Überprüfen, ob dialog installiert ist
+if ! command -v dialog &>/dev/null; then
+    echo "Das Paket 'dialog' ist nicht installiert. Installiere es zuerst mit 'pacman -S dialog'."
+    exit 1
+fi
+
+# Hilfsfunktionen für Dialoge
+get_input() {
+    dialog --title "$1" --inputbox "$2" 10 60 "$3" 2>&1 >/dev/tty
+}
+
+get_password() {
+    dialog --title "$1" --passwordbox "$2" 10 60 2>&1 >/dev/tty
+}
+
+get_choice() {
+    local title="$1"
     shift
     local options=("$@")
-    local choice
-
-    echo -e "\n$prompt"
+    local menu=()
     for i in "${!options[@]}"; do
-        echo "$((i + 1)). ${options[i]}"
+        menu+=("$i" "${options[i]}")
     done
+    dialog --title "$title" --menu "Wähle eine Option:" 15 60 8 "${menu[@]}" 2>&1 >/dev/tty
+}
 
-    while :; do
-        read -rp "Wähle eine Option [1-${#options[@]}]: " choice
-        if [[ $choice -ge 1 && $choice -le ${#options[@]} ]]; then
-            echo "${options[choice-1]}"
-            return
-        else
-            echo -e "${RED}Ungültige Auswahl. Bitte wähle eine gültige Option.${RESET}"
-        fi
-    done
+get_yes_no() {
+    dialog --title "$1" --yesno "$2" 10 60
 }
 
 # Zeitzonenauswahl
 select_timezone() {
     local timezones=("Europe/Berlin" "America/New_York" "Asia/Tokyo" "UTC")
-    TIMEZONE=$(select_option "Wähle deine Zeitzone:" "${timezones[@]}")
-    success_msg "Ausgewählte Zeitzone: $TIMEZONE"
+    local index
+    index=$(get_choice "Zeitzonenauswahl" "${timezones[@]}") || exit 1
+    echo "${timezones[index]}"
 }
 
 # Locale-Auswahl
 select_locale() {
     local locales=("de_DE.UTF-8" "en_US.UTF-8")
-    LOCALE=$(select_option "Wähle deine Locale:" "${locales[@]}")
-    success_msg "Ausgewählte Locale: $LOCALE"
+    local index
+    index=$(get_choice "Locale-Auswahl" "${locales[@]}") || exit 1
+    echo "${locales[index]}"
 }
 
-# Verfügbare Festplatten anzeigen und auswählen lassen
+# Festplattenauswahl
 select_disk() {
-    prompt_msg "Verfügbare Laufwerke:"
-    lsblk -d -o NAME,SIZE,TYPE | grep "disk"
-
     local disks=($(lsblk -d -o NAME | grep -v "NAME"))
-    DISK=$(select_option "Wähle ein Laufwerk aus:" "${disks[@]}")
-    success_msg "Ausgewähltes Laufwerk: $DISK"
+    local menu=()
+    for disk in "${disks[@]}"; do
+        size=$(lsblk -d -o NAME,SIZE -n "/dev/$disk" | awk '{print $2}')
+        menu+=("$disk" "$size")
+    done
+    get_choice "Festplattenauswahl" "${menu[@]}"
 }
 
 # WLAN-SSID auswählen
 select_wlan() {
-    prompt_msg "Scanne nach verfügbaren WLAN-Netzwerken..."
     iwctl station wlan0 scan
     sleep 2
-    AVAILABLE_SSIDS=$(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}')
-
-    if [ -z "$AVAILABLE_SSIDS" ]; then
-        error_msg "Keine WLAN-Netzwerke gefunden."
+    local ssids=($(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}'))
+    if [ ${#ssids[@]} -eq 0 ]; then
+        dialog --title "WLAN-Auswahl" --msgbox "Keine WLAN-Netzwerke gefunden." 10 60
         return 1
     fi
-
-    local ssids=($(echo "$AVAILABLE_SSIDS"))
-    SSID=$(select_option "Wähle ein WLAN-Netzwerk aus:" "${ssids[@]}")
-
-    read -sp "Passwort für $SSID eingeben: " WLAN_PASSWORD
-    echo
-
-    success_msg "WLAN-Netzwerk $SSID ausgewählt."
+    get_choice "WLAN-Netzwerk auswählen" "${ssids[@]}"
 }
 
 # Konfigurationsdatei erstellen
 create_config() {
     CONFIG_FILE="config.conf"
 
-    prompt_msg "Willkommen! Wir erstellen jetzt deine Konfigurationsdatei für die automatisierte Arch Linux Installation."
-    echo -e "\nBitte gib die folgenden Informationen ein (Drücke Enter, um den Standardwert zu akzeptieren):\n"
+    # Benutzerinformationen
+    HOSTNAME=$(get_input "Hostname" "Gib den Hostnamen ein:" "archlinux") || exit 1
+    USERNAME=$(get_input "Benutzername" "Gib den Benutzernamen ein:" "user") || exit 1
 
-    # Zeitzone
-    select_timezone
+    # Zeitzone und Locale
+    TIMEZONE=$(select_timezone)
+    LOCALE=$(select_locale)
 
-    # Locale
-    select_locale
-
-    # Festplattenauswahl
-    select_disk
+    # Festplatte
+    DISK=$(select_disk)
 
     # Dateisystem
     local filesystems=("Btrfs" "ext4" "xfs")
-    FILESYSTEM=$(select_option "Wähle das Dateisystem für die Installation:" "${filesystems[@]}")
+    FILESYSTEM=${filesystems[$(get_choice "Dateisystem-Auswahl" "${filesystems[@]}")]} || exit 1
 
-    # WLAN-Optionen
-    echo -e "\nSoll WLAN konfiguriert werden?"
-    select WLAN_OPTION in "Ja" "Nein"; do
-        case $WLAN_OPTION in
-            Ja) select_wlan; break ;;
-            Nein) success_msg "WLAN wird übersprungen."; WLAN_OPTION=false; break ;;
-            *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
-        esac
-    done
+    # WLAN
+    if get_yes_no "WLAN-Konfiguration" "Soll WLAN konfiguriert werden?"; then
+        SSID=$(select_wlan) || exit 1
+        WLAN_PASSWORD=$(get_password "WLAN-Passwort" "Gib das Passwort für $SSID ein:") || exit 1
+    else
+        SSID=""
+        WLAN_PASSWORD=""
+    fi
 
     # Desktop-Umgebung
     local desktop_envs=("GNOME" "KDE" "XFCE" "MATE" "Keine")
-    DESKTOP_ENV=$(select_option "Wähle eine Desktop-Umgebung (oder Keine):" "${desktop_envs[@]}")
+    DESKTOP_ENV=${desktop_envs[$(get_choice "Desktop-Umgebung" "${desktop_envs[@]}")]} || exit 1
 
-    # Grafiktreiber
-    echo -e "\nSoll der NVIDIA-Treiber installiert werden?"
-    select NVIDIA_CHOICE in "Ja" "Nein"; do
-        case $NVIDIA_CHOICE in
-            Ja) INSTALL_NVIDIA=true; break ;;
-            Nein) INSTALL_NVIDIA=false; break ;;
-            *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
-        esac
-    done
-
-    if [ "$INSTALL_NVIDIA" = true ]; then
-        echo -e "\nSoll die Intel-GPU deaktiviert werden?"
-        select INTEL_CHOICE in "Ja" "Nein"; do
-            case $INTEL_CHOICE in
-                Ja) DISABLE_INTEL=true; break ;;
-                Nein) DISABLE_INTEL=false; break ;;
-                *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
-            esac
-        done
+    # NVIDIA-Treiber
+    if get_yes_no "NVIDIA-Treiber" "Soll der NVIDIA-Treiber installiert werden?"; then
+        INSTALL_NVIDIA=true
+        if get_yes_no "Intel GPU deaktivieren" "Soll die Intel-GPU deaktiviert werden?"; then
+            DISABLE_INTEL=true
+        else
+            DISABLE_INTEL=false
+        fi
+    else
+        INSTALL_NVIDIA=false
+        DISABLE_INTEL=false
     fi
 
-    # Repository-URL
-    echo -e "\nGib die URL deines privaten GitHub-Repositories ein:"
-    read -rp "(Standard: https://github.com/DasPocky/arch-install-scripts.git): " GITHUB_REPO_URL
-    GITHUB_REPO_URL=${GITHUB_REPO_URL:-https://github.com/DasPocky/arch-install-scripts.git}
+    # GitHub-Repository
+    GITHUB_REPO_URL=$(get_input "GitHub-Repository" "Gib die URL deines privaten GitHub-Repositories ein:" "https://github.com/<DEIN_USERNAME>/arch-install-scripts.git") || exit 1
 
     # Konfigurationsdatei schreiben
     cat <<EOF > $CONFIG_FILE
 # config.conf - Automatisch generierte Konfigurationsdatei
 
 # Allgemeine Einstellungen
+HOSTNAME="$HOSTNAME"
+USERNAME="$USERNAME"
 TIMEZONE="$TIMEZONE"
 LOCALE="$LOCALE"
 DISK="/dev/$DISK"
 FILESYSTEM="$FILESYSTEM"
 
 # WLAN-Optionen
-WLAN_OPTION=$WLAN_OPTION
 SSID="$SSID"
 WLAN_PASSWORD="$WLAN_PASSWORD"
 
@@ -170,20 +151,14 @@ DISABLE_INTEL=$DISABLE_INTEL
 GITHUB_REPO_URL="$GITHUB_REPO_URL"
 EOF
 
-    if [ -f "$CONFIG_FILE" ]; then
-        success_msg "Konfigurationsdatei $CONFIG_FILE wurde erfolgreich erstellt!"
-    else
-        error_msg "Fehler beim Erstellen der Konfigurationsdatei."
-        exit 1
-    fi
+    dialog --title "Konfiguration abgeschlossen" --msgbox "Die Konfigurationsdatei wurde erfolgreich erstellt: $CONFIG_FILE" 10 60
 }
 
 # Hauptfunktion
 main() {
-    echo -e "${GREEN}Start des Konfigurationsassistenten...${RESET}"
+    dialog --title "Arch Linux Installer" --msgbox "Willkommen beim Arch Linux Installer-Konfigurationsassistenten!" 10 60
     create_config
-    echo -e "\nDu kannst die Datei $CONFIG_FILE bei Bedarf manuell bearbeiten."
-    success_msg "Die Konfiguration ist abgeschlossen! Fahre mit dem Installationsskript fort."
+    dialog --title "Fertig" --msgbox "Die Konfiguration ist abgeschlossen! Du kannst jetzt mit der Installation fortfahren." 10 60
 }
 
 main
