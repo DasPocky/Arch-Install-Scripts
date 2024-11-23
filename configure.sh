@@ -70,7 +70,7 @@ select_wlan() {
     sleep 2
 
     # SSIDs erfassen und filtern
-    local ssids=($(iwctl station wlan0 get-networks | awk -F '  +' '/[^\s]/ {if (NR>3) print $1}' | sort -u | sed '/^\s*$/d'))
+    local ssids=($(iwctl station wlan0 get-networks | awk -F '  +' '/^\*/ {print $2}' | sort -u | sed '/^\s*$/d'))
     if [ ${#ssids[@]} -eq 0 ]; then
         dialog --title "WLAN-Auswahl" --msgbox "Keine WLAN-Netzwerke gefunden." 10 60
         return 1
