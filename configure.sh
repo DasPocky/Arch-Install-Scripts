@@ -8,8 +8,13 @@ RESET="\033[0m"
 
 # Hilfsfunktionen
 success_msg() { echo -e "${GREEN}✔ $1${RESET}"; }
-error_msg() { echo -e "${RED}✖ $1${RESET}"; }
+error_msg() { echo -e "${RED}✖ $1${RESET}"; exit 1; }
 prompt_msg() { echo -e "${BLUE}$1${RESET}"; }
+
+# Überprüfen, ob das Skript als root ausgeführt wird
+if [ "$(id -u)" -ne 0 ]; then
+    error_msg "Bitte führe das Skript als root aus."
+fi
 
 # Verfügbare Laufwerke anzeigen und auswählen lassen
 select_disk() {
@@ -25,13 +30,14 @@ select_disk() {
 
     if [[ ! " ${disk_options[@]} " =~ " ${DISK} " ]]; then
         error_msg "Ungültige Auswahl. Bitte erneut ausführen."
-        exit 1
     fi
     success_msg "Ausgewähltes Laufwerk: $DISK"
 }
 
 # Konfigurationsdatei erstellen
 create_config() {
+    CONFIG_FILE="config.conf"
+
     prompt_msg "Willkommen! Wir erstellen jetzt deine Konfigurationsdatei für die automatisierte Arch Linux Installation."
     echo -e "\nBitte gib die folgenden Informationen ein (Drücke Enter, um den Standardwert zu akzeptieren):\n"
 
@@ -133,7 +139,11 @@ DISABLE_INTEL=$DISABLE_INTEL
 GITHUB_REPO_URL="$GITHUB_REPO_URL"
 EOF
 
-    success_msg "Konfigurationsdatei $CONFIG_FILE wurde erfolgreich erstellt!"
+    if [ -f "$CONFIG_FILE" ]; then
+        success_msg "Konfigurationsdatei $CONFIG_FILE wurde erfolgreich erstellt!"
+    else
+        error_msg "Fehler beim Erstellen der Konfigurationsdatei."
+    fi
 }
 
 # Hauptfunktion
