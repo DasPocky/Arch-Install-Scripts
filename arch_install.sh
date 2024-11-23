@@ -18,6 +18,18 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 source "$CONFIG_FILE"
 
+# Passwort sicher abfragen
+get_password() {
+    read -sp "Gib das Passwort für Benutzer $USERNAME und root ein: " PASSWORD
+    echo
+    read -sp "Bestätige das Passwort: " PASSWORD_CONFIRM
+    echo
+    if [ "$PASSWORD" != "$PASSWORD_CONFIRM" ]; then
+        error_exit "Die Passwörter stimmen nicht überein. Bitte erneut ausführen."
+    fi
+    success_msg "Passwort erfolgreich gesetzt."
+}
+
 # Spiegelserver aktualisieren
 update_mirrorlist() {
     step_msg "Aktualisiere die Pacman-Spiegelserver für Deutschland (HTTPS)..."
@@ -94,11 +106,11 @@ EOF
     success_msg "Systemkonfiguration abgeschlossen."
 }
 
-# GitHub-Repository klonen
+# GitHub-Repository klonen (HTTPS)
 clone_repo() {
-    step_msg "Klonen des privaten GitHub-Repositories..."
+    step_msg "Klonen des GitHub-Repositories über HTTPS..."
     mkdir -p /mnt/root/arch-install-scripts
-    cp -R ./ /mnt/root/arch-install-scripts || error_exit "Fehler beim Kopieren des Repositories."
+    git clone "$GITHUB_REPO_URL" /mnt/root/arch-install-scripts || error_exit "Fehler beim Klonen des Repositories."
     success_msg "Repository kopiert."
 }
 
@@ -127,6 +139,7 @@ EOF
 # Hauptfunktion
 main() {
     echo -e "${GREEN}Starte automatisierte Arch Linux Installation...${RESET}"
+    get_password
     update_mirrorlist
     partition_disk
     if [ "$FILESYSTEM" == "btrfs" ]; then
