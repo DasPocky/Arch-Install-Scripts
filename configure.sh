@@ -16,21 +16,50 @@ if [ "$(id -u)" -ne 0 ]; then
     error_msg "Bitte führe das Skript als root aus."
 fi
 
-# Verfügbare Laufwerke anzeigen und auswählen lassen
+# Auswahl einer Option aus einer Liste
+select_option() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local default_index=0
+
+    echo -e "\n$prompt"
+    for i in "${!options[@]}"; do
+        echo "$((i + 1)). ${options[i]}"
+    done
+
+    read -rp "Wähle eine Option (Standard: ${options[default_index]}): " choice
+    choice=${choice:-$((default_index + 1))}
+
+    if [[ $choice -ge 1 && $choice -le ${#options[@]} ]]; then
+        echo "${options[choice-1]}"
+    else
+        error_msg "Ungültige Auswahl. Bitte erneut versuchen."
+        select_option "$prompt" "${options[@]}"
+    fi
+}
+
+# Zeitzonenauswahl
+select_timezone() {
+    local timezones=("Europe/Berlin" "America/New_York" "Asia/Tokyo" "UTC")
+    TIMEZONE=$(select_option "Wähle deine Zeitzone:" "${timezones[@]}")
+    success_msg "Ausgewählte Zeitzone: $TIMEZONE"
+}
+
+# Locale-Auswahl
+select_locale() {
+    local locales=("de_DE.UTF-8" "en_US.UTF-8")
+    LOCALE=$(select_option "Wähle deine Locale:" "${locales[@]}")
+    success_msg "Ausgewählte Locale: $LOCALE"
+}
+
+# Verfügbare Festplatten anzeigen und auswählen lassen
 select_disk() {
     prompt_msg "Verfügbare Laufwerke:"
     lsblk -d -o NAME,SIZE,TYPE | grep "disk"
 
-    local disk_options=($(lsblk -d -o NAME | grep -v "NAME"))
-    local default_disk=${disk_options[0]}
-
-    echo -e "\nWähle ein Laufwerk aus der obigen Liste (Standard: $default_disk):"
-    read -rp "Eingabe (z. B. $default_disk): " DISK
-    DISK=${DISK:-$default_disk}
-
-    if [[ ! " ${disk_options[@]} " =~ " ${DISK} " ]]; then
-        error_msg "Ungültige Auswahl. Bitte erneut ausführen."
-    fi
+    local disks=($(lsblk -d -o NAME | grep -v "NAME"))
+    DISK=$(select_option "Wähle ein Laufwerk aus:" "${disks[@]}")
     success_msg "Ausgewähltes Laufwerk: $DISK"
 }
 
@@ -41,6 +70,11 @@ select_wlan() {
     sleep 2
     AVAILABLE_SSIDS=$(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}')
 
+    if [ -z "$AVAILABLE_SSIDS" ]; then
+        error_msg "Keine WLAN-Netzwerke gefunden."
+        return 1
+    fi
+
     echo -e "\nVerfügbare SSIDs:"
     echo "$AVAILABLE_SSIDS" | nl -w2 -s'. '
 
@@ -48,6 +82,7 @@ select_wlan() {
     SSID=$(echo "$AVAILABLE_SSIDS" | sed -n "${SSID_INDEX}p")
     if [ -z "$SSID" ]; then
         error_msg "Ungültige Auswahl."
+        return 1
     fi
 
     read -sp "Passwort für $SSID eingeben: " WLAN_PASSWORD
@@ -63,32 +98,18 @@ create_config() {
     prompt_msg "Willkommen! Wir erstellen jetzt deine Konfigurationsdatei für die automatisierte Arch Linux Installation."
     echo -e "\nBitte gib die folgenden Informationen ein (Drücke Enter, um den Standardwert zu akzeptieren):\n"
 
-    # Allgemeine Einstellungen
-    read -rp "Hostname (Standard: archlinux): " HOSTNAME
-    HOSTNAME=${HOSTNAME:-archlinux}
+    # Zeitzone
+    select_timezone
 
-    read -rp "Benutzername (Standard: user): " USERNAME
-    USERNAME=${USERNAME:-user}
-
-    read -rp "Zeitzone (Standard: Europe/Berlin): " TIMEZONE
-    TIMEZONE=${TIMEZONE:-Europe/Berlin}
-
-    read -rp "Locale (Standard: en_US.UTF-8): " LOCALE
-    LOCALE=${LOCALE:-en_US.UTF-8}
+    # Locale
+    select_locale
 
     # Festplattenauswahl
     select_disk
 
     # Dateisystem
-    echo -e "\nWähle das Dateisystem für die Installation:"
-    select FS in "Btrfs" "ext4" "xfs"; do
-        case $FS in
-            Btrfs) FILESYSTEM="btrfs"; break ;;
-            ext4) FILESYSTEM="ext4"; break ;;
-            xfs) FILESYSTEM="xfs"; break ;;
-            *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
-        esac
-    done
+    local filesystems=("Btrfs" "ext4" "xfs")
+    FILESYSTEM=$(select_option "Wähle das Dateisystem für die Installation:" "${filesystems[@]}")
 
     # WLAN-Optionen
     echo -e "\nSoll WLAN konfiguriert werden?"
@@ -101,27 +122,8 @@ create_config() {
     done
 
     # Desktop-Umgebung
-    echo -e "\nSoll eine Desktop-Umgebung installiert werden?"
-    select DESKTOP_CHOICE in "Ja" "Nein"; do
-        case $DESKTOP_CHOICE in
-            Ja) INSTALL_DESKTOP=true; break ;;
-            Nein) INSTALL_DESKTOP=false; break ;;
-            *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
-        esac
-    done
-
-    if [ "$INSTALL_DESKTOP" = true ]; then
-        echo -e "\nWähle die Desktop-Umgebung:"
-        select DE in "GNOME" "KDE" "XFCE" "MATE"; do
-            case $DE in
-                GNOME) DESKTOP_ENV="gnome"; break ;;
-                KDE) DESKTOP_ENV="kde"; break ;;
-                XFCE) DESKTOP_ENV="xfce"; break ;;
-                MATE) DESKTOP_ENV="mate"; break ;;
-                *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
-            esac
-        done
-    fi
+    local desktop_envs=("GNOME" "KDE" "XFCE" "MATE" "Keine")
+    DESKTOP_ENV=$(select_option "Wähle eine Desktop-Umgebung (oder Keine):" "${desktop_envs[@]}")
 
     # Grafiktreiber
     echo -e "\nSoll der NVIDIA-Treiber installiert werden?"
@@ -129,7 +131,7 @@ create_config() {
         case $NVIDIA_CHOICE in
             Ja) INSTALL_NVIDIA=true; break ;;
             Nein) INSTALL_NVIDIA=false; break ;;
-            *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
+            *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
         esac
     done
 
@@ -139,7 +141,7 @@ create_config() {
             case $INTEL_CHOICE in
                 Ja) DISABLE_INTEL=true; break ;;
                 Nein) DISABLE_INTEL=false; break ;;
-                *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
+                *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
             esac
         done
     fi
@@ -154,8 +156,6 @@ create_config() {
 # config.conf - Automatisch generierte Konfigurationsdatei
 
 # Allgemeine Einstellungen
-HOSTNAME="$HOSTNAME"
-USERNAME="$USERNAME"
 TIMEZONE="$TIMEZONE"
 LOCALE="$LOCALE"
 DISK="/dev/$DISK"
@@ -167,7 +167,6 @@ SSID="$SSID"
 WLAN_PASSWORD="$WLAN_PASSWORD"
 
 # Desktop-Einstellungen
-INSTALL_DESKTOP=$INSTALL_DESKTOP
 DESKTOP_ENV="$DESKTOP_ENV"
 
 # Grafiktreiber
@@ -182,6 +181,7 @@ EOF
         success_msg "Konfigurationsdatei $CONFIG_FILE wurde erfolgreich erstellt!"
     else
         error_msg "Fehler beim Erstellen der Konfigurationsdatei."
+        exit 1
     fi
 }
 
