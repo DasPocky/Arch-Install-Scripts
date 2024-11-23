@@ -2,7 +2,7 @@
 
 # Überprüfen, ob das Skript als root ausgeführt wird
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Das Skript benötigt root-Berechtigungen. Versuche es mit sudo neu zu starten..."
+    echo "Das Skript benötigt root-Berechtigungen. Starte es mit sudo neu..."
     exec sudo "$0" "$@"
     exit 0
 fi
@@ -53,27 +53,38 @@ select_locale() {
     echo "${locales[index]}"
 }
 
-# Festplattenauswahl
+# Festplattenauswahl mit Größenanzeige
 select_disk() {
-    local disks=($(lsblk -d -o NAME | grep -v "NAME"))
+    local disks=($(lsblk -dn -o NAME,SIZE | awk '{print $1 "|" $2}'))
     local menu=()
     for disk in "${disks[@]}"; do
-        size=$(lsblk -d -o NAME,SIZE -n "/dev/$disk" | awk '{print $2}')
-        menu+=("$disk" "$size")
+        dev_name=$(echo "$disk" | cut -d'|' -f1)
+        dev_size=$(echo "$disk" | cut -d'|' -f2)
+        menu+=("$dev_name" "${dev_name} (${dev_size})")
     done
     get_choice "Festplattenauswahl" "${menu[@]}"
 }
 
 # WLAN-SSID auswählen
 select_wlan() {
-    iwctl station wlan0 scan
+    iwctl station wlan0 scan >/dev/null 2>&1
     sleep 2
-    local ssids=($(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}'))
+
+    # Erfasse SSIDs und entferne doppelte Einträge
+    local ssids=($(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}' | sort -u | sed '/^\s*$/d'))
+
     if [ ${#ssids[@]} -eq 0 ]; then
         dialog --title "WLAN-Auswahl" --msgbox "Keine WLAN-Netzwerke gefunden." 10 60
         return 1
     fi
-    get_choice "WLAN-Netzwerk auswählen" "${ssids[@]}"
+
+    # Erstelle ein Menü mit nummerierten Optionen
+    local menu=()
+    for ssid in "${ssids[@]}"; do
+        menu+=("$ssid" "$ssid")
+    done
+
+    get_choice "WLAN-Netzwerk auswählen" "${menu[@]}"
 }
 
 # Konfigurationsdatei erstellen
