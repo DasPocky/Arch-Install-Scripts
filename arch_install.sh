@@ -47,13 +47,22 @@ partition_disk() {
     parted "$DISK" --script mkpart primary 512MiB 100% || error_exit "Fehler beim Erstellen der Root-Partition."
     success_msg "Partitionierung abgeschlossen."
 
+    # Partitionen für NVMe-Laufwerke korrekt erkennen
+    if [[ "$DISK" == *nvme* ]]; then
+        EFI_PART="${DISK}p1"
+        ROOT_PART="${DISK}p2"
+    else
+        EFI_PART="${DISK}1"
+        ROOT_PART="${DISK}2"
+    fi
+
     step_msg "Formatiere Partitionen..."
-    mkfs.fat -F32 "${DISK}1" || error_exit "Fehler beim Formatieren der EFI-Partition."
+    mkfs.fat -F32 "$EFI_PART" || error_exit "Fehler beim Formatieren der EFI-Partition."
     if [ "$FILESYSTEM" == "btrfs" ]; then
-        mkfs.btrfs "${DISK}2" || error_exit "Fehler beim Formatieren der Root-Partition als Btrfs."
+        mkfs.btrfs "$ROOT_PART" || error_exit "Fehler beim Formatieren der Root-Partition als Btrfs."
         success_msg "Root-Partition als Btrfs formatiert."
     else
-        mkfs.ext4 "${DISK}2" || error_exit "Fehler beim Formatieren der Root-Partition als ext4."
+        mkfs.ext4 "$ROOT_PART" || error_exit "Fehler beim Formatieren der Root-Partition als ext4."
         success_msg "Root-Partition als ext4 formatiert."
     fi
 }
