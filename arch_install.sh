@@ -59,7 +59,7 @@ partition_disk() {
     step_msg "Formatiere Partitionen..."
     mkfs.fat -F32 "$EFI_PART" || error_exit "Fehler beim Formatieren der EFI-Partition."
     if [ "$FILESYSTEM" == "btrfs" ]; then
-        mkfs.btrfs "$ROOT_PART" || error_exit "Fehler beim Formatieren der Root-Partition als Btrfs."
+        mkfs.btrfs -f "$ROOT_PART" || error_exit "Fehler beim Formatieren der Root-Partition als Btrfs."
         success_msg "Root-Partition als Btrfs formatiert."
     else
         mkfs.ext4 "$ROOT_PART" || error_exit "Fehler beim Formatieren der Root-Partition als ext4."
