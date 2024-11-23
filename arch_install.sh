@@ -56,6 +56,7 @@ partition_disk() {
         ROOT_PART="${DISK}2"
     fi
 
+
     step_msg "Formatiere Partitionen..."
     mkfs.fat -F32 "$EFI_PART" || error_exit "Fehler beim Formatieren der EFI-Partition."
     if [ "$FILESYSTEM" == "btrfs" ]; then
@@ -71,7 +72,10 @@ partition_disk() {
 setup_btrfs() {
     if [ "$FILESYSTEM" == "btrfs" ]; then
         step_msg "Erstelle Btrfs-Subvolumes..."
-        mount "${DISK}2" /mnt
+        # Root-Partition mounten
+        mount "$ROOT_PART" /mnt || error_exit "Fehler beim Mounten der Root-Partition."
+
+        # Subvolumes erstellen
         btrfs subvolume create /mnt/@ || error_exit "Fehler beim Erstellen des @-Subvolumes."
         btrfs subvolume create /mnt/@home || error_exit "Fehler beim Erstellen des @home-Subvolumes."
         btrfs subvolume create /mnt/@snapshots || error_exit "Fehler beim Erstellen des @snapshots-Subvolumes."
@@ -79,15 +83,16 @@ setup_btrfs() {
         umount /mnt
 
         step_msg "Mount Subvolumes..."
-        mount -o noatime,compress=zstd,subvol=@ "${DISK}2" /mnt
+        mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
         mkdir -p /mnt/{boot,home,.snapshots,var/log}
-        mount -o noatime,compress=zstd,subvol=@home "${DISK}2" /mnt/home
-        mount -o noatime,compress=zstd,subvol=@snapshots "${DISK}2" /mnt/.snapshots
-        mount -o noatime,compress=zstd,subvol=@var_log "${DISK}2" /mnt/var/log
-        mount "${DISK}1" /mnt/boot
+        mount -o noatime,compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
+        mount -o noatime,compress=zstd,subvol=@var_log "$ROOT_PART" /mnt/var/log
+        mount "$EFI_PART" /mnt/boot || error_exit "Fehler beim Mounten der EFI-Partition."
         success_msg "Subvolumes gemountet."
     fi
 }
+
 
 # Basissystem installieren
 install_base_system() {
