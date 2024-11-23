@@ -53,14 +53,13 @@ select_locale() {
     echo "${locales[index]}"
 }
 
-# Festplattenauswahl mit Größenanzeige
+# Festplattenauswahl (nur Hauptplatten, keine Partitionen)
 select_disk() {
-    local disks=($(lsblk -dn -o NAME,SIZE | awk '{print $1 "|" $2}'))
+    local disks=($(lsblk -dn -o NAME,TYPE | awk '$2 == "disk" {print $1}'))
     local menu=()
     for disk in "${disks[@]}"; do
-        dev_name=$(echo "$disk" | cut -d'|' -f1)
-        dev_size=$(echo "$disk" | cut -d'|' -f2)
-        menu+=("$dev_name" "${dev_name} (${dev_size})")
+        size=$(lsblk -dn -o SIZE "/dev/$disk")
+        menu+=("$disk" "$disk ($size)")
     done
     get_choice "Festplattenauswahl" "${menu[@]}"
 }
@@ -70,9 +69,8 @@ select_wlan() {
     iwctl station wlan0 scan >/dev/null 2>&1
     sleep 2
 
-    # Erfasse SSIDs und entferne doppelte Einträge
-    local ssids=($(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}' | sort -u | sed '/^\s*$/d'))
-
+    # SSIDs erfassen und filtern
+    local ssids=($(iwctl station wlan0 get-networks | awk -F '  +' '/[^\s]/ {if (NR>3) print $1}' | sort -u | sed '/^\s*$/d'))
     if [ ${#ssids[@]} -eq 0 ]; then
         dialog --title "WLAN-Auswahl" --msgbox "Keine WLAN-Netzwerke gefunden." 10 60
         return 1
