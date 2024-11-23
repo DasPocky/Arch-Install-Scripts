@@ -30,13 +30,6 @@ get_password() {
     success_msg "Passwort erfolgreich gesetzt."
 }
 
-# Spiegelserver aktualisieren
-update_mirrorlist() {
-    step_msg "Aktualisiere die Pacman-Spiegelserver für Deutschland (HTTPS)..."
-    reflector --country Germany --protocol https --latest 5 --sort rate --save /etc/pacman.d/mirrorlist || error_exit "Fehler beim Aktualisieren der Spiegelserver."
-    success_msg "Pacman-Spiegelserver aktualisiert."
-}
-
 # Partitionieren und formatieren
 partition_disk() {
     step_msg "Partitioniere Festplatte $DISK..."
@@ -90,36 +83,48 @@ setup_btrfs() {
 
 # Basissystem installieren
 install_base_system() {
-    step_msg "Installiere Basissystem und grundlegende Pakete..."
-    pacstrap /mnt base linux linux-firmware networkmanager btrfs-progs sudo openssh vim base-devel git || error_exit "Fehler beim Installieren des Basissystems."
+    step_msg "Installiere minimales Basissystem..."
+    pacstrap /mnt base linux linux-firmware || error_exit "Fehler beim Installieren des Basissystems."
     genfstab -U /mnt >> /mnt/etc/fstab || error_exit "Fehler beim Generieren der fstab."
-    success_msg "Basissystem und grundlegende Pakete installiert."
+    success_msg "Minimales Basissystem installiert."
 }
 
-# Bootloader installieren
-install_grub() {
-    step_msg "Installiere GRUB-Bootloader..."
-    arch-chroot /mnt pacman -S --noconfirm grub efibootmgr intel-ucode amd-ucode || error_exit "Fehler beim Installieren von GRUB und Microcode."
-    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || error_exit "Fehler beim Installieren des GRUB-Bootloaders."
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || error_exit "Fehler beim Erstellen der GRUB-Konfigurationsdatei."
-    success_msg "GRUB-Bootloader erfolgreich installiert."
-}
-
-# Grundlegende Systemkonfiguration
+# Pakete und Netzwerk im Chroot installieren
 configure_system() {
-    step_msg "Wechsle ins neue System und führe grundlegende Konfiguration durch..."
+    step_msg "Wechsle ins neue System und führe grundlegende Konfiguration und Paketinstallation durch..."
     arch-chroot /mnt /bin/bash <<EOF
+        # Zeitzone und Systemzeit einstellen
         ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
         hwclock --systohc
-        echo "KEYMAP=de-latin1" > /etc/vconsole.conf
+        
+        # Locale und Hostname setzen
         echo "$HOSTNAME" > /etc/hostname
-        echo -e "127.0.0.1   localhost\n::1         localhost\n127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
-        sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+        echo "127.0.0.1   localhost" > /etc/hosts
+        echo "::1         localhost" >> /etc/hosts
+        echo "127.0.1.1   $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
+
+        # Pakete installieren
+        pacman -S --noconfirm networkmanager iwd btrfs-progs sudo openssh vim base-devel git grub efibootmgr intel-ucode amd-ucode fastfetch || exit 1
+        
+        # Dienste aktivieren
+        systemctl enable NetworkManager
+        systemctl enable sshd
+        systemctl enable iwd
+
+        # Benutzer einrichten
         useradd -m -G wheel -s /bin/bash "$USERNAME"
         echo "$USERNAME:$PASSWORD" | chpasswd
         echo "root:$PASSWORD" | chpasswd
-        systemctl enable NetworkManager
-        systemctl enable sshd
+        sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+        # GRUB installieren und konfigurieren
+        grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || exit 1
+        grub-mkconfig -o /boot/grub/grub.cfg || exit 1
+
+        # Fastfetch konfigurieren
+        echo -e "\n# Fastfetch" >> /home/$USERNAME/.bashrc
+        echo "fastfetch" >> /home/$USERNAME/.bashrc
+        chown $USERNAME:$USERNAME /home/$USERNAME/.bashrc
 EOF
     success_msg "Systemkonfiguration abgeschlossen."
 }
@@ -128,14 +133,12 @@ EOF
 main() {
     echo -e "${GREEN}Starte automatisierte Arch Linux Installation...${RESET}"
     get_password
-    update_mirrorlist
     partition_disk
     if [ "$FILESYSTEM" == "btrfs" ]; then
         setup_btrfs
     fi
     install_base_system
     configure_system
-    install_grub
     success_msg "Installation abgeschlossen. Starte das System neu, um das Post-Installationsskript auszuführen."
 }
 

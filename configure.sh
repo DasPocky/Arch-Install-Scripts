@@ -34,6 +34,28 @@ select_disk() {
     success_msg "Ausgewähltes Laufwerk: $DISK"
 }
 
+# WLAN-SSID auswählen
+select_wlan() {
+    prompt_msg "Scanne nach verfügbaren WLAN-Netzwerken..."
+    iwctl station wlan0 scan
+    sleep 2
+    AVAILABLE_SSIDS=$(iwctl station wlan0 get-networks | awk 'NR>3 {print $1}')
+
+    echo -e "\nVerfügbare SSIDs:"
+    echo "$AVAILABLE_SSIDS" | nl -w2 -s'. '
+
+    read -rp "Wähle die SSID (Nummer) aus: " SSID_INDEX
+    SSID=$(echo "$AVAILABLE_SSIDS" | sed -n "${SSID_INDEX}p")
+    if [ -z "$SSID" ]; then
+        error_msg "Ungültige Auswahl."
+    fi
+
+    read -sp "Passwort für $SSID eingeben: " WLAN_PASSWORD
+    echo
+
+    success_msg "WLAN-Netzwerk $SSID ausgewählt."
+}
+
 # Konfigurationsdatei erstellen
 create_config() {
     CONFIG_FILE="config.conf"
@@ -59,11 +81,22 @@ create_config() {
 
     # Dateisystem
     echo -e "\nWähle das Dateisystem für die Installation:"
-    select FS in "Btrfs" "ext4"; do
+    select FS in "Btrfs" "ext4" "xfs"; do
         case $FS in
             Btrfs) FILESYSTEM="btrfs"; break ;;
             ext4) FILESYSTEM="ext4"; break ;;
+            xfs) FILESYSTEM="xfs"; break ;;
             *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
+        esac
+    done
+
+    # WLAN-Optionen
+    echo -e "\nSoll WLAN konfiguriert werden?"
+    select WLAN_OPTION in "Ja" "Nein"; do
+        case $WLAN_OPTION in
+            Ja) select_wlan; break ;;
+            Nein) success_msg "WLAN wird übersprungen."; WLAN_OPTION=false; break ;;
+            *) error_msg "Ungültige Auswahl. Bitte erneut versuchen." ;;
         esac
     done
 
@@ -79,11 +112,12 @@ create_config() {
 
     if [ "$INSTALL_DESKTOP" = true ]; then
         echo -e "\nWähle die Desktop-Umgebung:"
-        select DE in "GNOME" "KDE" "XFCE"; do
+        select DE in "GNOME" "KDE" "XFCE" "MATE"; do
             case $DE in
                 GNOME) DESKTOP_ENV="gnome"; break ;;
                 KDE) DESKTOP_ENV="kde"; break ;;
                 XFCE) DESKTOP_ENV="xfce"; break ;;
+                MATE) DESKTOP_ENV="mate"; break ;;
                 *) error_msg "Ungültige Auswahl! Bitte erneut versuchen." ;;
             esac
         done
@@ -112,8 +146,8 @@ create_config() {
 
     # Repository-URL
     echo -e "\nGib die URL deines privaten GitHub-Repositories ein:"
-    read -rp "(Standard: https://github.com/<DEIN_USERNAME>/arch-install-scripts.git): " GITHUB_REPO_URL
-    GITHUB_REPO_URL=${GITHUB_REPO_URL:-https://github.com/<DEIN_USERNAME>/arch-install-scripts.git}
+    read -rp "(Standard: https://github.com/DasPocky/arch-install-scripts.git): " GITHUB_REPO_URL
+    GITHUB_REPO_URL=${GITHUB_REPO_URL:-https://github.com/DasPocky/arch-install-scripts.git}
 
     # Konfigurationsdatei schreiben
     cat <<EOF > $CONFIG_FILE
@@ -126,6 +160,11 @@ TIMEZONE="$TIMEZONE"
 LOCALE="$LOCALE"
 DISK="/dev/$DISK"
 FILESYSTEM="$FILESYSTEM"
+
+# WLAN-Optionen
+WLAN_OPTION=$WLAN_OPTION
+SSID="$SSID"
+WLAN_PASSWORD="$WLAN_PASSWORD"
 
 # Desktop-Einstellungen
 INSTALL_DESKTOP=$INSTALL_DESKTOP
